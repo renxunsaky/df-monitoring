@@ -1,0 +1,33 @@
+replicaCount: 1
+
+image:
+  repository: your-registry/docfactory-monitoring
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 5000
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 200m
+    memory: 256Mi
+
+externalSecrets:
+  enabled: true
+  secretStore:
+    name: vault-backend
+    kind: SecretStore
+  vault:
+    path: secret/data/docfactory-monitoring
+    refreshInterval: "1h"
+
+podAnnotations: {}
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000 
