@@ -1,6 +1,5 @@
 from flask import Flask, jsonify, request
 from flask_caching import Cache
-import psycopg2
 from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import RealDictCursor
 import os
@@ -8,6 +7,7 @@ from dotenv import load_dotenv
 from contextlib import contextmanager
 from logging_config import setup_logger
 import traceback
+from utils.query_loader import QueryLoader
 
 # Setup logger
 logger = setup_logger()
@@ -15,7 +15,11 @@ logger = setup_logger()
 # Load environment variables
 load_dotenv()
 
+# Initialize Flask app
 app = Flask(__name__)
+
+# Initialize query loader
+query_loader = QueryLoader()
 
 # Configure cache
 cache_config = {
@@ -72,12 +76,9 @@ def get_metrics():
     logger.info(f"Received metrics request from {request.remote_addr}")
     try:
         with get_db_cursor() as cur:
+            query = query_loader.get_query('get_last_hour_metrics')
             logger.debug("Executing metrics query")
-            cur.execute("""
-                SELECT metric_name, value, timestamp 
-                FROM metrics 
-                WHERE timestamp > NOW() - INTERVAL '1 hour'
-            """)
+            cur.execute(query)
             results = cur.fetchall()
             logger.debug(f"Query returned {len(results)} results")
             
@@ -89,6 +90,50 @@ def get_metrics():
     except Exception as e:
         error_details = traceback.format_exc()
         logger.error(f"Error in get_metrics: {str(e)}\n{error_details}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/metrics/daily', methods=['GET'])
+@cache.cached(timeout=300)
+def get_daily_metrics():
+    logger.info(f"Received daily metrics request from {request.remote_addr}")
+    try:
+        with get_db_cursor() as cur:
+            query = query_loader.get_query('get_daily_average')
+            cur.execute(query)
+            results = cur.fetchall()
+            
+        return jsonify({
+            "status": "success",
+            "data": results
+        })
+    
+    except Exception as e:
+        logger.error(f"Error in get_daily_metrics: {str(e)}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
+@app.route('/api/metrics/<metric_name>', methods=['GET'])
+@cache.cached(timeout=300)
+def get_metric_by_name(metric_name):
+    logger.info(f"Received metric request for {metric_name} from {request.remote_addr}")
+    try:
+        with get_db_cursor() as cur:
+            query = query_loader.get_query('get_metric_by_name')
+            cur.execute(query, (metric_name,))
+            results = cur.fetchall()
+            
+        return jsonify({
+            "status": "success",
+            "data": results
+        })
+    
+    except Exception as e:
+        logger.error(f"Error in get_metric_by_name: {str(e)}")
         return jsonify({
             "status": "error",
             "message": str(e)
