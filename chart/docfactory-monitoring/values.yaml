@@ -9,6 +9,22 @@ service:
   type: ClusterIP
   port: 5000
 
+ingress:
+  enabled: true
+  className: "nginx"  # or your ingress controller class
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # kubernetes.io/tls-acme: "true"
+  hosts:
+    - host: monitoring.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  #  - secretName: monitoring-tls
+  #    hosts:
+  #      - monitoring.example.com
+
 resources:
   limits:
     cpu: 500m
@@ -25,6 +41,13 @@ externalSecrets:
   vault:
     path: secret/data/docfactory-monitoring
     refreshInterval: "1h"
+    auth:
+      method: kubernetes
+      role: docfactory-monitoring
+      mountPath: kubernetes
+      serviceAccount:
+        create: true
+        name: docfactory-monitoring-sa
 
 podAnnotations: {}
 
