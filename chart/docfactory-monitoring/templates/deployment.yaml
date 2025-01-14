@@ -31,4 +31,11 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }} 
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          volumeMounts:
+            - name: queries-config
+              mountPath: /config
+      volumes:
+        - name: queries-config
+          configMap:
+            name: {{ include "docfactory-monitoring.fullname" . }}-queries 

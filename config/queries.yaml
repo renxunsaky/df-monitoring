@@ -1,0 +1,34 @@
+queries:
+  last_hour_metrics:
+    description: "Get metrics from the last hour"
+    query: |
+      SELECT metric_name, value, timestamp 
+      FROM metrics 
+      WHERE timestamp > NOW() - INTERVAL '1 hour'
+
+  daily_average:
+    description: "Get daily average of metrics"
+    query: |
+      SELECT 
+        metric_name,
+        AVG(value) as average_value,
+        DATE(timestamp) as metric_date
+      FROM metrics 
+      WHERE timestamp > NOW() - INTERVAL '24 hours'
+      GROUP BY metric_name, DATE(timestamp)
+
+  metric_by_name:
+    description: "Get metrics by name"
+    query: |
+      SELECT metric_name, value, timestamp 
+      FROM metrics 
+      WHERE metric_name = %s 
+      ORDER BY timestamp DESC 
+      LIMIT 100
+
+  custom_timerange:
+    description: "Get metrics within a custom timerange"
+    query: |
+      SELECT metric_name, value, timestamp 
+      FROM metrics 
+      WHERE timestamp BETWEEN %s AND %s 

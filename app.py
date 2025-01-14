@@ -3,6 +3,7 @@ from flask_caching import Cache
 from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import RealDictCursor
 import os
+import yaml
 from dotenv import load_dotenv
 from contextlib import contextmanager
 from logging_config import setup_logger
@@ -18,8 +19,9 @@ load_dotenv()
 # Initialize Flask app
 app = Flask(__name__)
 
-# Initialize query loader
-query_loader = QueryLoader()
+# Initialize query loader with configurable path
+config_path = os.getenv('QUERIES_CONFIG_PATH', 'config/queries.yaml')  # Default to local path
+query_loader = QueryLoader(config_path)
 
 # Configure cache
 cache_config = {
@@ -70,74 +72,59 @@ def get_db_cursor():
         finally:
             cursor.close()
 
-@app.route('/api/metrics', methods=['GET'])
+@app.route('/api/query/<query_name>', methods=['GET'])
 @cache.cached(timeout=300)
-def get_metrics():
-    logger.info(f"Received metrics request from {request.remote_addr}")
+def execute_query(query_name):
+    logger.info(f"Received query request for {query_name} from {request.remote_addr}")
     try:
+        # Get query from configuration
+        query = query_loader.get_query(query_name)
+        if not query:
+            return jsonify({
+                "status": "error",
+                "message": f"Query '{query_name}' not found"
+            }), 404
+
+        # Parse parameters from request args
+        params = []
+        if 'params' in request.args:
+            params = request.args.getlist('params')
+
         with get_db_cursor() as cur:
-            query = query_loader.get_query('get_last_hour_metrics')
-            logger.debug("Executing metrics query")
-            cur.execute(query)
+            logger.debug(f"Executing query: {query_name}")
+            cur.execute(query, params or None)
             results = cur.fetchall()
             logger.debug(f"Query returned {len(results)} results")
-            
+
         return jsonify({
             "status": "success",
+            "query_name": query_name,
+            "description": query_loader.get_query_description(query_name),
             "data": results
         })
-    
+
     except Exception as e:
         error_details = traceback.format_exc()
-        logger.error(f"Error in get_metrics: {str(e)}\n{error_details}")
+        logger.error(f"Error in execute_query: {str(e)}\n{error_details}")
         return jsonify({
             "status": "error",
             "message": str(e)
         }), 500
 
-@app.route('/api/metrics/daily', methods=['GET'])
-@cache.cached(timeout=300)
-def get_daily_metrics():
-    logger.info(f"Received daily metrics request from {request.remote_addr}")
-    try:
-        with get_db_cursor() as cur:
-            query = query_loader.get_query('get_daily_average')
-            cur.execute(query)
-            results = cur.fetchall()
-            
-        return jsonify({
-            "status": "success",
-            "data": results
-        })
-    
-    except Exception as e:
-        logger.error(f"Error in get_daily_metrics: {str(e)}")
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
-
-@app.route('/api/metrics/<metric_name>', methods=['GET'])
-@cache.cached(timeout=300)
-def get_metric_by_name(metric_name):
-    logger.info(f"Received metric request for {metric_name} from {request.remote_addr}")
-    try:
-        with get_db_cursor() as cur:
-            query = query_loader.get_query('get_metric_by_name')
-            cur.execute(query, (metric_name,))
-            results = cur.fetchall()
-            
-        return jsonify({
-            "status": "success",
-            "data": results
-        })
-    
-    except Exception as e:
-        logger.error(f"Error in get_metric_by_name: {str(e)}")
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
+@app.route('/', methods=['GET'])
+def root():
+    return jsonify({
+        "status": "success",
+        "message": "DocFactory Monitoring API",
+        "available_queries": [
+            {
+                "name": name,
+                "description": query_loader.get_query_description(name),
+                "endpoint": f"/api/query/{name}"
+            }
+            for name in query_loader.get_query_names()
+        ]
+    })
 
 @app.before_request
 def log_request_info():
@@ -150,10 +137,16 @@ def log_response_info(response):
 
 @app.teardown_appcontext
 def close_pool(exception):
+    global pool
     if exception:
         logger.error(f"Error during request: {str(exception)}")
-    pool.closeall()
-    logger.debug("Connection pool closed")
+    try:
+        if pool is not None:
+            pool.closeall()
+            pool = None
+            logger.debug("Connection pool closed")
+    except Exception as e:
+        logger.warning(f"Error while closing pool: {str(e)}")
 
 if __name__ == '__main__':
     logger.info("Starting Dynatrace API service")

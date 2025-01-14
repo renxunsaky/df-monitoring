@@ -1,0 +1,9 @@
+ 
+kind: ConfigMap
+metadata:
+  name: {{ include "docfactory-monitoring.fullname" . }}-queries
+  labels:
+    {{- include "docfactory-monitoring.labels" . | nindent 4 }}
+data:
+  queries.yaml: |
+    {{- .Files.Get "config/queries.yaml" | nindent 4 }}
