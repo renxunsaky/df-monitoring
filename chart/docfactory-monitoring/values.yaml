@@ -1,3 +1,12 @@
+# Override name generation
+nameOverride: ""
+fullnameOverride: ""
+
+# ServiceAccount configuration
+serviceAccount:
+  create: true
+  name: "default"
+
 replicaCount: 1
 
 image:
@@ -11,19 +20,14 @@ service:
 
 ingress:
   enabled: true
-  className: "nginx"  # or your ingress controller class
+  className: "nginx"
   annotations: {}
-    # kubernetes.io/ingress.class: nginx
-    # kubernetes.io/tls-acme: "true"
   hosts:
     - host: monitoring.example.com
       paths:
         - path: /
           pathType: Prefix
   tls: []
-  #  - secretName: monitoring-tls
-  #    hosts:
-  #      - monitoring.example.com
 
 resources:
   limits:

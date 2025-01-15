@@ -1,0 +1,2 @@
+2025-01-15 17:35:11,418 | INFO     | app.py:46 | <module> | Database connection pool created successfully
+2025-01-15 17:35:11,419 | INFO     | app.py:153 | <module> | Starting Dynatrace API service
