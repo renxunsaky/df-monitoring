@@ -17,11 +17,19 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create logs directory
-RUN mkdir -p logs
+# Create logs directory and set permissions
+RUN mkdir -p logs && \
+    chown -R 1000:1000 /app/logs && \
+    chmod 755 /app/logs
+
+# Verify installed packages
+RUN pip list
 
 # Expose port
 EXPOSE 5000
 
-# Run the application
-CMD ["python", "app.py"] 
+# Set the user
+USER 1000
+
+# Run the application with Gunicorn
+CMD ["python", "app.py"]
