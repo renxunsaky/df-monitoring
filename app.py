@@ -157,4 +157,4 @@ if __name__ == '__main__':
         logger.error("Cannot start application: Database connection pool not initialized")
         sys.exit(1)
     logger.info("Starting application")
-    app.run(debug=True) 
+    app.run(host='0.0.0.0', port=5000, debug=False) 
