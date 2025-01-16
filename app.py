@@ -22,12 +22,11 @@ pool = None
 
 def create_pool():
     """Create and return database connection pool"""
-    global pool
     try:
         logger.info(f"Connecting to database at {os.getenv('DB_HOST')}:{os.getenv('DB_PORT')} "
                     f"with user {os.getenv('DB_USER')} and database {os.getenv('DB_NAME')}")
         
-        pool = ThreadedConnectionPool(
+        db_pool = ThreadedConnectionPool(
             minconn=1,
             maxconn=10,
             host=os.getenv("DB_HOST"),
@@ -39,14 +38,14 @@ def create_pool():
         )
         
         # Test the connection
-        with pool.getconn() as conn:
+        with db_pool.getconn() as conn:
             with conn.cursor() as cur:
                 cur.execute('SELECT 1')
                 logger.info("Database connection test successful")
-            pool.putconn(conn)
+            db_pool.putconn(conn)
         
         logger.info("Database connection pool created successfully")
-        return pool
+        return db_pool
     except Exception as e:
         error_details = traceback.format_exc()
         logger.error(f"Failed to create connection pool: {str(e)}\n{error_details}")
@@ -67,38 +66,27 @@ cache_config = {
 app.config.from_mapping(cache_config)
 cache = Cache(app)
 
-# Create the pool
+# Create the pool before starting the app
 pool = create_pool()
 
 @contextmanager
 def get_db_connection():
     global pool
     if pool is None:
-        logger.error("Database connection pool not initialized")
-        raise Exception("Database connection pool not initialized")
+        pool = create_pool()
     
     conn = pool.getconn()
     try:
-        logger.debug("Retrieved connection from pool")
         yield conn
     finally:
         pool.putconn(conn)
-        logger.debug("Returned connection to pool")
 
-@contextmanager
-def get_db_cursor():
-    with get_db_connection() as connection:
-        cursor = connection.cursor()
-        try:
-            yield cursor
-            connection.commit()
-            logger.debug("Database transaction committed")
-        except Exception as e:
-            connection.rollback()
-            logger.error(f"Database transaction rolled back: {str(e)}")
-            raise
-        finally:
-            cursor.close()
+@app.teardown_appcontext
+def close_pool(exception):
+    global pool
+    if pool is not None:
+        pool.closeall()
+        pool = None
 
 @app.route('/api/query/<query_name>', methods=['GET'])
 @cache.cached(timeout=300)
@@ -118,11 +106,12 @@ def execute_query(query_name):
         if 'params' in request.args:
             params = request.args.getlist('params')
 
-        with get_db_cursor() as cur:
-            logger.debug(f"Executing query: {query_name}")
-            cur.execute(query, params or None)
-            results = cur.fetchall()
-            logger.debug(f"Query returned {len(results)} results")
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                logger.debug(f"Executing query: {query_name}")
+                cur.execute(query, params or None)
+                results = cur.fetchall()
+                logger.debug(f"Query returned {len(results)} results")
 
         return jsonify({
             "status": "success",
@@ -162,19 +151,6 @@ def log_request_info():
 def log_response_info(response):
     logger.info(f"Response: {response.status}")
     return response
-
-@app.teardown_appcontext
-def close_pool(exception):
-    global pool
-    if exception:
-        logger.error(f"Error during request: {str(exception)}")
-    try:
-        if pool is not None:
-            pool.closeall()
-            pool = None
-            logger.debug("Connection pool closed")
-    except Exception as e:
-        logger.warning(f"Error while closing pool: {str(e)}")
 
 if __name__ == '__main__':
     if pool is None:
