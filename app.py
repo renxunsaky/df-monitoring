@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from logging_config import setup_logger
 import traceback
 from utils.query_loader import QueryLoader
+import sys
 
 # Setup logger
 logger = setup_logger()
@@ -16,11 +17,46 @@ logger = setup_logger()
 # Load environment variables
 load_dotenv()
 
+# Global pool variable
+pool = None
+
+def create_pool():
+    """Create and return database connection pool"""
+    global pool
+    try:
+        logger.info(f"Connecting to database at {os.getenv('DB_HOST')}:{os.getenv('DB_PORT')} "
+                    f"with user {os.getenv('DB_USER')} and database {os.getenv('DB_NAME')}")
+        
+        pool = ThreadedConnectionPool(
+            minconn=1,
+            maxconn=10,
+            host=os.getenv("DB_HOST"),
+            port=os.getenv("DB_PORT", "5432"),
+            database=os.getenv("DB_NAME"),
+            user=os.getenv("DB_USER"),
+            password=os.getenv("DB_PASSWORD"),
+            cursor_factory=RealDictCursor
+        )
+        
+        # Test the connection
+        with pool.getconn() as conn:
+            with conn.cursor() as cur:
+                cur.execute('SELECT 1')
+                logger.info("Database connection test successful")
+            pool.putconn(conn)
+        
+        logger.info("Database connection pool created successfully")
+        return pool
+    except Exception as e:
+        error_details = traceback.format_exc()
+        logger.error(f"Failed to create connection pool: {str(e)}\n{error_details}")
+        raise
+
 # Initialize Flask app
 app = Flask(__name__)
 
 # Initialize query loader with configurable path
-config_path = os.getenv('QUERIES_CONFIG_PATH', 'config/queries.yaml')  # Default to local path
+config_path = os.getenv('QUERIES_CONFIG_PATH', 'config/queries.yaml')
 query_loader = QueryLoader(config_path)
 
 # Configure cache
@@ -31,25 +67,16 @@ cache_config = {
 app.config.from_mapping(cache_config)
 cache = Cache(app)
 
-# Create connection pool
-try:
-    pool = ThreadedConnectionPool(
-        minconn=1,
-        maxconn=10,
-        host=os.getenv("DB_HOST"),
-        port=os.getenv("DB_PORT", "5432"),  # Default PostgreSQL port is 5432
-        database=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        cursor_factory=RealDictCursor
-    )
-    logger.info("Database connection pool created successfully")
-except Exception as e:
-    logger.error(f"Failed to create connection pool: {str(e)}")
-    raise
+# Create the pool
+pool = create_pool()
 
 @contextmanager
 def get_db_connection():
+    global pool
+    if pool is None:
+        logger.error("Database connection pool not initialized")
+        raise Exception("Database connection pool not initialized")
+    
     conn = pool.getconn()
     try:
         logger.debug("Retrieved connection from pool")
@@ -150,5 +177,8 @@ def close_pool(exception):
         logger.warning(f"Error while closing pool: {str(e)}")
 
 if __name__ == '__main__':
-    logger.info("Starting Dynatrace API service")
+    if pool is None:
+        logger.error("Cannot start application: Database connection pool not initialized")
+        sys.exit(1)
+    logger.info("Starting application")
     app.run(debug=True) 
