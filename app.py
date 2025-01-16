@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Blueprint
 from flask_caching import Cache
 from psycopg2.pool import ThreadedConnectionPool
 from psycopg2.extras import RealDictCursor
@@ -51,8 +51,14 @@ def create_pool():
         logger.error(f"Failed to create connection pool: {str(e)}\n{error_details}")
         raise
 
+# Create Blueprint
+monitoring_bp = Blueprint('monitoring', __name__, url_prefix='/monitoring')
+
 # Initialize Flask app
 app = Flask(__name__)
+
+# Add URL prefix configuration
+app.config['APPLICATION_ROOT'] = '/monitoring'
 
 # Initialize query loader with configurable path
 config_path = os.getenv('QUERIES_CONFIG_PATH', 'config/queries.yaml')
@@ -88,7 +94,7 @@ def close_pool(exception):
         pool.closeall()
         pool = None
 
-@app.route('/api/query/<query_name>', methods=['GET'])
+@monitoring_bp.route('/api/query/<query_name>', methods=['GET'])
 @cache.cached(timeout=300)
 def execute_query(query_name):
     logger.info(f"Received query request for {query_name} from {request.remote_addr}")
@@ -128,7 +134,7 @@ def execute_query(query_name):
             "message": str(e)
         }), 500
 
-@app.route('/', methods=['GET'])
+@monitoring_bp.route('/', methods=['GET'])
 def root():
     return jsonify({
         "status": "success",
@@ -137,7 +143,7 @@ def root():
             {
                 "name": name,
                 "description": query_loader.get_query_description(name),
-                "endpoint": f"/api/query/{name}"
+                "endpoint": f"/monitoring/api/query/{name}"
             }
             for name in query_loader.get_query_names()
         ]
@@ -151,6 +157,9 @@ def log_request_info():
 def log_response_info(response):
     logger.info(f"Response: {response.status}")
     return response
+
+# Register blueprint
+app.register_blueprint(monitoring_bp)
 
 if __name__ == '__main__':
     if pool is None:
